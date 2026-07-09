@@ -1,5 +1,7 @@
 name: packages
 
+# Builds and pushes the eurac fork image to GHCR
+# (helm-chart branch -> :eurac tag).
 on:
   push:
     branches:
