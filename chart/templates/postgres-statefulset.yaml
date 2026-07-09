@@ -52,6 +52,24 @@ spec:
                   key: {{ .Values.auth.secretKeys.passwordKey }}
             - name: POSTGRES_DB
               value: {{ .Values.auth.database | quote }}
+            # The pgstac image's init script (990_pgstac.sh) connects with psql,
+            # which defaults to user "postgres" unless PGUSER is set. Since our
+            # superuser is POSTGRES_USER (not "postgres"), the init fails with
+            # 'role "postgres" does not exist' and the pgstac schema is never
+            # installed. Setting PG* (as compose.yml does) makes psql connect as
+            # the right user so the schema bootstraps correctly.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "stac-fastapi-pgstac.secretName" . }}
+                  key: {{ .Values.auth.secretKeys.usernameKey }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "stac-fastapi-pgstac.secretName" . }}
+                  key: {{ .Values.auth.secretKeys.passwordKey }}
+            - name: PGDATABASE
+              value: {{ .Values.auth.database | quote }}
             # Use a subdirectory so the volume mount point (which may contain
             # lost+found) is not used as PGDATA directly.
             - name: PGDATA
