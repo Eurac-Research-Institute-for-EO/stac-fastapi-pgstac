@@ -1,0 +1,37 @@
+stac-fastapi-pgstac has been deployed.
+
+API service: {{ include "stac-fastapi-pgstac.fullname" . }}:{{ .Values.api.service.port }}
+{{- if .Values.postgres.enabled }}
+Database:    {{ include "stac-fastapi-pgstac.postgres.fullname" . }}:{{ .Values.postgres.service.port }} (in-cluster pgstac)
+{{- else }}
+Database:    {{ .Values.externalDatabase.host }}:{{ .Values.externalDatabase.port }} (external)
+{{- end }}
+
+{{- if .Values.ingress.enabled }}
+
+Reachable at:
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else }}
+
+The API Service is {{ .Values.api.service.type }}. To reach it locally:
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "stac-fastapi-pgstac.fullname" . }} 8080:{{ .Values.api.service.port }}
+  Then open http://127.0.0.1:8080/api.html  (or /docs)
+{{- end }}
+
+Health/landing endpoints:
+  /_mgmt/ping     liveness (no DB)
+  /_mgmt/health   readiness (checks DB)
+  /               STAC landing page
+
+{{- if not .Values.postgres.enabled }}
+
+NOTE: postgres.enabled=false — the external database at
+{{ .Values.externalDatabase.host }} must have the pgstac schema installed.
+{{- if not .Values.migrations.enabled }}
+Consider setting migrations.enabled=true to run `pypgstac migrate` on install.
+{{- end }}
+{{- end }}

@@ -1,0 +1,58 @@
+{{- if .Values.migrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "stac-fastapi-pgstac.fullname" . }}-migrate
+  labels:
+    {{- include "stac-fastapi-pgstac.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    # Run after the (bundled) database exists, on install and upgrade. The job
+    # waits for the DB to accept connections before running the migration.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "stac-fastapi-pgstac.labels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: "{{ .Values.migrations.image.repository }}:{{ .Values.migrations.image.tag }}"
+          imagePullPolicy: {{ .Values.migrations.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            {{- include "stac-fastapi-pgstac.dbEnv" . | nindent 12 }}
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              echo "Waiting for database ${PGHOST}:${PGPORT} ..."
+              until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE"; do
+                sleep 2
+              done
+              echo "Running pypgstac migrate ..."
+              pypgstac migrate
+          resources:
+            {{- toYaml .Values.migrations.resources | nindent 12 }}
+{{- end }}

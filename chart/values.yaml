@@ -1,0 +1,230 @@
+# Default values for stac-fastapi-pgstac.
+# This chart deploys the FastAPI STAC API plus (optionally) an in-cluster
+# pgstac PostgreSQL database.
+
+# -- Override the chart name used in resource names.
+nameOverride: ""
+# -- Override the full release name used in resource names.
+fullnameOverride: ""
+
+# -- Secrets for pulling images from a private registry, e.g. [{name: regcred}].
+imagePullSecrets: []
+
+# =============================================================================
+# Database credentials (shared by the API and the bundled Postgres).
+# =============================================================================
+auth:
+  # -- Database username.
+  username: username
+  # -- Database password. Ignored when existingSecret is set. Leave empty and
+  # set via --set / a secret manager rather than committing it.
+  password: ""
+  # -- Database name.
+  database: postgis
+  # -- Reference an existing Secret instead of creating one from the values
+  # above. Recommended for GitOps (sealed-secrets / vault / external-secrets).
+  existingSecret: ""
+  # -- Keys within the Secret (chart-created or existing) that hold the
+  # username and password.
+  secretKeys:
+    usernameKey: username
+    passwordKey: password
+
+# =============================================================================
+# STAC API (FastAPI / uvicorn)
+# =============================================================================
+api:
+  # -- Number of API replicas (ignored when autoscaling.enabled is true).
+  replicaCount: 2
+
+  image:
+    # -- API image repository. Point at the registry where your fork is pushed.
+    repository: ghcr.io/eurac/stac-fastapi-pgstac
+    # -- Image tag. Defaults to the chart appVersion when empty.
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    # -- Service port. Targets the container's port 8080.
+    port: 8080
+
+  # Application settings, mapped to the container's environment variables.
+  # See the stac-fastapi-pgstac docs for the full list.
+  settings:
+    # -- Gunicorn/uvicorn worker count.
+    webConcurrency: "10"
+    # -- asyncpg connection pool sizing.
+    dbMinConnSize: "1"
+    dbMaxConnSize: "10"
+    # -- Enable the Transactions + Bulk Transactions extensions (write API).
+    enableTransactionsExtensions: false
+    # -- Enable the (read-only) Catalogs extension.
+    enableCatalogsExtension: false
+    # -- Comma-separated list of enabled extensions. Empty enables all.
+    enabledExtensions: ""
+    # -- Perform item hydration in the API instead of in PgSTAC.
+    useApiHydrate: false
+    # -- CORS allowed origins (comma-separated, or "*").
+    corsOrigins: "*"
+    # -- uvicorn root path, e.g. "/api/v1/pgstac" when served under a subpath
+    # behind an ingress. Runtime option — no image rebuild needed.
+    uvicornRootPath: ""
+
+  # -- Extra environment variables passed verbatim ({name,value} or valueFrom).
+  # Use for GDAL tuning, additional STAC settings, etc.
+  extraEnv:
+    - name: VSI_CACHE
+      value: "TRUE"
+    - name: GDAL_HTTP_MERGE_CONSECUTIVE_RANGES
+      value: "YES"
+    - name: GDAL_DISABLE_READDIR_ON_OPEN
+      value: "EMPTY_DIR"
+  # -- Extra env sourced from ConfigMaps/Secrets.
+  envFrom: []
+
+  # -- HTTP paths for probes. ping does not touch the DB; health does.
+  probes:
+    livenessPath: /_mgmt/ping
+    readinessPath: /_mgmt/health
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  podAnnotations: {}
+  podLabels: {}
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# =============================================================================
+# Bundled pgstac PostgreSQL (StatefulSet).
+# Set enabled: false to use an external database (see externalDatabase).
+# =============================================================================
+postgres:
+  # -- Deploy an in-cluster pgstac PostgreSQL StatefulSet.
+  enabled: true
+
+  image:
+    # -- pgstac image (Postgres with the pgstac schema pre-installed).
+    repository: ghcr.io/stac-utils/pgstac
+    tag: v0.9.8
+    pullPolicy: IfNotPresent
+
+  service:
+    port: 5432
+
+  # -- Extra args to the postgres command, e.g. tuning max connections.
+  args:
+    - "-N"
+    - "500"
+
+  persistence:
+    # -- Persist the database on a PersistentVolumeClaim.
+    enabled: true
+    # -- StorageClass. Empty uses the cluster default.
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+
+  # Postgres official image runs as uid/gid 999. fsGroup makes the PVC writable.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# =============================================================================
+# External database (used only when postgres.enabled is false).
+# Credentials still come from the `auth` block above.
+# =============================================================================
+externalDatabase:
+  host: ""
+  port: 5432
+
+# =============================================================================
+# pgstac migrations (optional).
+# Runs `pypgstac migrate` as a pre-install/pre-upgrade Helm hook. The bundled
+# pgstac image already installs the schema on first init, so this is mainly for
+# external databases and for schema upgrades on an existing volume.
+# =============================================================================
+migrations:
+  enabled: false
+  image:
+    # -- Image providing the `pypgstac` CLI. Defaults to the pgstac image.
+    repository: ghcr.io/stac-utils/pgstac
+    tag: v0.9.8
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+# =============================================================================
+# Ingress for the API.
+# =============================================================================
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: stac-api.example.org
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# =============================================================================
+# ServiceAccount
+# =============================================================================
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""

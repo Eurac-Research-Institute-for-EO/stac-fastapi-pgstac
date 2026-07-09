@@ -1,0 +1,19 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "stac-fastapi-pgstac.postgres.fullname" . }}
+  labels:
+    {{- include "stac-fastapi-pgstac.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  # Headless service — stable network identity for the StatefulSet pod.
+  clusterIP: None
+  ports:
+    - port: {{ .Values.postgres.service.port }}
+      targetPort: postgres
+      protocol: TCP
+      name: postgres
+  selector:
+    {{- include "stac-fastapi-pgstac.postgres.selectorLabels" . | nindent 4 }}
+{{- end }}
