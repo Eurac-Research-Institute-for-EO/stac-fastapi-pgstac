@@ -116,16 +116,25 @@ Used only when `postgres.enabled=false`. Credentials still come from `auth`.
 
 ### Migrations (`migrations`)
 
-Optional Helm `post-install`/`post-upgrade` hook Job that waits for the DB then
-runs `pypgstac migrate`. The bundled image self-installs the schema on first
-init, so this mainly helps with **external databases** and **schema upgrades**
-on an existing volume.
+Optional Helm `post-install`/`post-upgrade` hook Job that runs `pypgstac
+migrate` against the database. **Off by default, and not needed for a fresh
+install** — the pgstac image installs the schema itself on first init (from its
+baked `999_pgstac.sql`). The Job exists for one job: **walking the schema
+forward on an existing volume when you bump the pgstac version** (see
+[Upgrading pgstac](#upgrading-pgstac)). Also useful against an **external DB**
+that doesn't self-install.
+
+> Neither the pgstac image nor the API image ships the `pypgstac` CLI, so the
+> Job runs a plain `python` image and `pip install`s pypgstac at runtime — it
+> therefore needs **egress to PyPI**. `migrate` is idempotent, so re-runs are
+> safe no-ops.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `migrations.enabled` | bool | `false` | Run the migration Job. |
-| `migrations.image.repository` | string | `ghcr.io/stac-utils/pgstac` | Image providing `pypgstac`. |
-| `migrations.image.tag` | string | `v0.9.8` | Match the pgstac schema version you target. |
+| `migrations.enabled` | bool | `false` | Render + run the migration Job (a PostSync hook under Argo CD). |
+| `migrations.image.repository` | string | `python` | Base image the Job pip-installs pypgstac into. |
+| `migrations.image.tag` | string | `3.12-slim` | Python base image tag. |
+| `migrations.pypgstacVersion` | string | `>=0.9,<0.10` | pypgstac version spec to install. **Keep aligned with `postgres.image.tag`.** |
 | `migrations.resources` | map | small | Job resources. |
 
 ### Ingress, ServiceAccount, misc
@@ -193,3 +202,57 @@ The API prefix is a **runtime**
 setting. To serve at `/api/v1/pgstac` behind an ingress, set
 `api.settings.uvicornRootPath: "/api/v1/pgstac"` and route that path to the
 Service — no image rebuild needed.
+
+## Upgrading pgstac
+
+**Fresh install needs nothing here** — the pgstac image installs its schema on
+first init of an empty volume. The problem is *later*: bumping
+`postgres.image.tag` to a new pgstac version does **not** re-run that init,
+because the PVC already has data. The DB comes up still on the old schema while
+the new API expects the new one. `pypgstac migrate` is the in-place path that
+walks the existing data's schema forward — that's what the (default-off)
+migration Job runs.
+
+### How the `migrations.enabled` toggle behaves
+
+- `false` → the Job isn't rendered. Nothing runs.
+- `true` → the Job is a **PostSync hook**: it runs at the end of **each Argo CD
+  sync** (i.e. when you push a change or Argo CD heals drift) — not
+  continuously, and not "once ever". `hook-delete-policy:
+  before-hook-creation,hook-succeeded` means each run replaces the previous Job
+  and a succeeded one is cleaned up.
+- `pypgstac migrate` is **idempotent**, so leaving it `true` just makes it a
+  no-op on syncs where the schema is already current.
+
+You can therefore either **leave it on** (simple, but every sync then depends on
+PyPI egress + a reachable DB) or **toggle it per upgrade** (recommended below).
+
+### Upgrade playbook (toggle per upgrade)
+
+1. In one commit, bump the DB image and turn the migrator on with a matching
+   pypgstac version:
+
+   ```yaml
+   postgres:
+     image:
+       tag: v0.10.x                  # new schema-providing DB image
+   migrations:
+     enabled: true
+     pypgstacVersion: ">=0.10,<0.11" # match the new schema version
+   ```
+
+2. Push → Argo CD syncs. The DB StatefulSet rolls to the new image (no re-init;
+   the PVC is non-empty), then the PostSync Job `pip install`s the matching
+   pypgstac and runs `migrate`, walking the schema `0.9.8 → 0.10.x`.
+3. Once healthy, set `migrations.enabled: false` again in a follow-up commit.
+
+### Two caveats for upgrade day
+
+- **Brief 503 window:** the new API pods roll at the same time and stay
+  unhealthy (`/_mgmt/health` 503) until the PostSync migrate finishes. Expected;
+  it self-recovers.
+- **PostgreSQL *major* version jumps are out of scope for `migrate`:** if a
+  pgstac image bump also bumps PostgreSQL's major version (e.g. PG17 → PG18),
+  the on-disk data format changes and needs `pg_upgrade` / dump-restore.
+  `pypgstac migrate` only migrates the **pgstac schema**, not the PG data
+  directory — check the release notes before bumping.

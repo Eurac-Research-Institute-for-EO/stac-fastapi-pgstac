@@ -27,8 +27,8 @@ spec:
       {{- end }}
       securityContext:
         runAsNonRoot: true
-        runAsUser: 999
-        runAsGroup: 999
+        runAsUser: 1000
+        runAsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -42,17 +42,26 @@ spec:
                 - ALL
           env:
             {{- include "stac-fastapi-pgstac.dbEnv" . | nindent 12 }}
+            # pip --user needs a writable HOME (we run as an arbitrary uid).
+            - name: HOME
+              value: /tmp
           command:
             - sh
             - -c
             - |
               set -e
-              echo "Waiting for database ${PGHOST}:${PGPORT} ..."
-              until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE"; do
-                sleep 2
+              export PATH="$HOME/.local/bin:$PATH"
+              echo "Installing pypgstac{{ .Values.migrations.pypgstacVersion }} ..."
+              pip install --no-cache-dir --user "pypgstac[psycopg]{{ .Values.migrations.pypgstacVersion }}"
+              echo "Running pypgstac migrate (retrying until the DB is ready) ..."
+              n=0
+              until pypgstac migrate; do
+                n=$((n+1))
+                if [ "$n" -ge 30 ]; then echo "migrate failed after $n attempts"; exit 1; fi
+                echo "DB not ready or migrate failed; retry $n/30 in 4s ..."
+                sleep 4
               done
-              echo "Running pypgstac migrate ..."
-              pypgstac migrate
+              echo "Migration complete."
           resources:
             {{- toYaml .Values.migrations.resources | nindent 12 }}
 {{- end }}

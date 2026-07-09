@@ -189,17 +189,25 @@ externalDatabase:
 
 # =============================================================================
 # pgstac migrations (optional).
-# Runs `pypgstac migrate` as a pre-install/pre-upgrade Helm hook. The bundled
-# pgstac image already installs the schema on first init, so this is mainly for
+# Runs `pypgstac migrate` as a post-install/post-upgrade Helm hook. The bundled
+# pgstac image ALREADY installs the schema on first init, so this is mainly for
 # external databases and for schema upgrades on an existing volume.
+#
+# NOTE: neither the pgstac image nor the API image ships the `pypgstac` CLI, so
+# the job uses a plain python image and `pip install`s pypgstac at runtime
+# (requires egress to PyPI). Pin pypgstacVersion to match your pgstac schema.
+# Its a bit of a BS workaround but we work with what we got. <3
 # =============================================================================
 migrations:
   enabled: false
   image:
-    # -- Image providing the `pypgstac` CLI. Defaults to the pgstac image.
-    repository: ghcr.io/stac-utils/pgstac
-    tag: v0.9.8
+    # -- A python image; the job pip-installs pypgstac into it at runtime.
+    repository: python
+    tag: "3.12-slim"
     pullPolicy: IfNotPresent
+  # -- pypgstac version spec installed by the job (keep aligned with the pgstac
+  # schema version, i.e. postgres.image.tag).
+  pypgstacVersion: ">=0.9,<0.10"
   resources:
     requests:
       cpu: 50m
