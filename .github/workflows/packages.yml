@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - helm-chart
     tags:
       - "*"
     paths:
@@ -11,7 +12,7 @@ on:
       - setup.cfg
       - "**/*.py"
       - .github/workflows/packages.yml
-    workflow_dispatch:
+  workflow_dispatch:
 
 
 jobs:
@@ -39,7 +40,12 @@ jobs:
         id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
-          images: ghcr.io/stac-utils/stac-fastapi-pgstac
+          images: ghcr.io/eurac-research-institute-for-eo/stac-fastapi-pgstac
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=eurac,enable=${{ github.ref_name == 'helm-chart' }}
+            type=ref,event=branch,enable=${{ github.ref_name != 'helm-chart' }}
+            type=sha,format=short
 
       - name: Build and push Docker image
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
