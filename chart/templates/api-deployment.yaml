@@ -58,6 +58,8 @@ spec:
               value: {{ .Values.api.settings.useApiHydrate | quote }}
             - name: CORS_ORIGINS
               value: {{ .Values.api.settings.corsOrigins | quote }}
+            - name: CORS_METHODS
+              value: {{ .Values.api.settings.corsMethods | quote }}
             {{- with .Values.api.settings.enabledExtensions }}
             - name: ENABLED_EXTENSIONS
               value: {{ . | quote }}
@@ -65,6 +67,12 @@ spec:
             {{- with .Values.api.settings.uvicornRootPath }}
             - name: UVICORN_ROOT_PATH
               value: {{ . | quote }}
+            {{- end }}
+            {{- range $name, $value := .Values.api.gdalEnv }}
+            {{- if not (kindIs "invalid" $value) }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
             {{- end }}
             {{- with .Values.api.extraEnv }}
             {{- toYaml . | nindent 12 }}

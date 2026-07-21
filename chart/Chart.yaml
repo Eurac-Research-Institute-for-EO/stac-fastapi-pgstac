@@ -3,7 +3,7 @@ name: stac-fastapi-pgstac
 description: A Helm chart for stac-fastapi-pgstac — a FastAPI STAC API backed by a pgstac PostgreSQL database.
 type: application
 # version is the chart version; bump on chart changes (SemVer).
-version: 0.1.0
+version: 0.2.0
 # appVersion tracks the stac-fastapi-pgstac app version (see VERSION).
 appVersion: "6.3.1"
 keywords:

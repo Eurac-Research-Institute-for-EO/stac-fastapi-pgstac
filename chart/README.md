@@ -63,14 +63,24 @@ Mapped to the container's environment variables.
 | `enabledExtensions` | `ENABLED_EXTENSIONS` | `""` | Comma-separated list; empty = all. |
 | `useApiHydrate` | `USE_API_HYDRATE` | `false` | Hydrate items in the API instead of PgSTAC. |
 | `corsOrigins` | `CORS_ORIGINS` | `"*"` | CORS allowed origins. |
+| `corsMethods` | `CORS_METHODS` | `"GET,POST,OPTIONS"` | CORS allowed methods. Browser-side writes need `PUT`/`DELETE` here **as well as** `enableTransactionsExtensions` — otherwise the preflight blocks the request before it reaches the write API. |
 | `uvicornRootPath` | `UVICORN_ROOT_PATH` | `""` | Root path when served under an ingress subpath (e.g. `/api/v1/pgstac`). Runtime — no rebuild needed. |
 
 Anything else:
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `api.extraEnv` | list | GDAL/VSI tuning vars | Extra env (`{name,value}` or `valueFrom`). |
+| `api.gdalEnv` | map | `VSI_CACHE`, `GDAL_HTTP_MERGE_CONSECUTIVE_RANGES`, `GDAL_DISABLE_READDIR_ON_OPEN` | GDAL/VSI tuning for COGs over HTTP range requests. Rendered as env vars, name → value. |
+| `api.extraEnv` | list | `[]` | Escape hatch for env the chart doesn't model (`{name,value}` or `valueFrom`). |
 | `api.envFrom` | list | `[]` | Env from ConfigMaps/Secrets. |
+
+> **Why `gdalEnv` is a map.** Helm merges maps key-by-key but **replaces lists
+> wholesale**. When the tuning vars lived in the `api.extraEnv` list, an overlay
+> that added a single variable silently dropped all of them, and the overlay had
+> to restate the chart's defaults to stay correct — a drift waiting to happen.
+> As a map, `api.gdalEnv.VSI_CACHE: "FALSE"` changes one key and leaves the rest
+> alone; set a key to `null` to remove it entirely. `extraEnv` is now empty by
+> default, so overriding it can never drop a chart-managed variable.
 
 #### API autoscaling (`api.autoscaling`)
 

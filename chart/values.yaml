@@ -67,19 +67,26 @@ api:
     useApiHydrate: false
     # -- CORS allowed origins (comma-separated, or "*").
     corsOrigins: "*"
+    # -- CORS allowed methods (comma-separated). The default is read-only;
+    # browser-side writes need PUT/DELETE here as well as
+    # enableTransactionsExtensions, or the preflight blocks the request.
+    corsMethods: "GET,POST,OPTIONS"
     # -- uvicorn root path, e.g. "/api/v1/pgstac" when served under a subpath
     # behind an ingress. Runtime option — no image rebuild needed.
     uvicornRootPath: ""
 
-  # -- Extra environment variables passed verbatim ({name,value} or valueFrom).
-  # Use for GDAL tuning, additional STAC settings, etc.
-  extraEnv:
-    - name: VSI_CACHE
-      value: "TRUE"
-    - name: GDAL_HTTP_MERGE_CONSECUTIVE_RANGES
-      value: "YES"
-    - name: GDAL_DISABLE_READDIR_ON_OPEN
-      value: "EMPTY_DIR"
+  # -- GDAL/VSI tuning for reading COGs over HTTP range requests. A MAP, not a
+  # list, so an overlay that sets one key keeps the other defaults (Helm merges
+  # maps key-by-key but replaces lists wholesale). Set a key to null to drop it.
+  gdalEnv:
+    VSI_CACHE: "TRUE"
+    GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"
+    GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"
+
+  # -- Escape hatch for env the chart doesn't model ({name,value} or valueFrom).
+  # Empty by default, so overriding it can never silently drop a chart-managed
+  # var. Prefer api.settings / api.gdalEnv for anything they already cover.
+  extraEnv: []
   # -- Extra env sourced from ConfigMaps/Secrets.
   envFrom: []
 
