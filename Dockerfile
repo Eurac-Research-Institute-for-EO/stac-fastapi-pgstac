@@ -30,6 +30,10 @@ RUN uv sync --frozen --no-dev --extra server --extra catalogs --extra metrics --
 COPY stac_fastapi/ ./stac_fastapi/
 RUN uv pip install --no-deps --no-editable .
 
+RUN start=$(grep -n "STAC search \[POST" /opt/venv/lib/python3.14/site-packages/stac_fastapi/types/core.py -B3 -A3 | cut -c1-2 | head -1) && \
+    end=$(grep -n "STAC search \[POST" /opt/venv/lib/python3.14/site-packages/stac_fastapi/types/core.py -B3 -A3 | cut -c1-2 | tail -1) && \
+    sed -i "${start},${end}d" /opt/venv/lib/python3.14/site-packages/stac_fastapi/types/core.py
+
 # Runtime stage
 FROM python:${PYTHON_VERSION}-slim
 
